@@ -62,8 +62,28 @@ def extrair_metadata_pdf(pdf_file):
 def calcular_hash(file_bytes):
     return hashlib.md5(file_bytes).hexdigest()
 
+# Salvar arquivo PDF no disco
+def salvar_pdf(file_bytes, hash_arquivo):
+    # Criar diretório pdfs se não existir
+    if not os.path.exists('pdfs'):
+        os.makedirs('pdfs')
+    
+    # Salvar arquivo com o hash como nome
+    caminho_arquivo = os.path.join('pdfs', f'{hash_arquivo}.pdf')
+    with open(caminho_arquivo, 'wb') as f:
+        f.write(file_bytes)
+    return caminho_arquivo
+
+# Carregar arquivo PDF do disco
+def carregar_pdf(hash_arquivo):
+    caminho_arquivo = os.path.join('pdfs', f'{hash_arquivo}.pdf')
+    if os.path.exists(caminho_arquivo):
+        with open(caminho_arquivo, 'rb') as f:
+            return f.read()
+    return None
+
 # Adicionar livro ao banco de dados
-def adicionar_livro(dados_livro):
+def adicionar_livro(dados_livro, file_bytes=None):
     try:
         conn = sqlite3.connect('biblioteca.db')
         c = conn.cursor()
@@ -85,6 +105,11 @@ def adicionar_livro(dados_livro):
         ))
         conn.commit()
         conn.close()
+        
+        # Salvar arquivo PDF se fornecido
+        if file_bytes:
+            salvar_pdf(file_bytes, dados_livro['hash_arquivo'])
+        
         return True
     except sqlite3.IntegrityError:
         return False
@@ -127,6 +152,18 @@ def obter_categorias():
 def deletar_livro(livro_id):
     conn = sqlite3.connect('biblioteca.db')
     c = conn.cursor()
+    
+    # Obter hash do arquivo antes de deletar
+    c.execute('SELECT hash_arquivo FROM livros WHERE id = ?', (livro_id,))
+    resultado = c.fetchone()
+    
+    if resultado:
+        hash_arquivo = resultado[0]
+        # Deletar arquivo PDF se existir
+        caminho_arquivo = os.path.join('pdfs', f'{hash_arquivo}.pdf')
+        if os.path.exists(caminho_arquivo):
+            os.remove(caminho_arquivo)
+    
     c.execute('DELETE FROM livros WHERE id = ?', (livro_id,))
     conn.commit()
     conn.close()
@@ -224,7 +261,7 @@ if menu == "📥 Adicionar Livro":
         if st.button("💾 Salvar na Biblioteca", type="primary"):
             if titulo:
                 dados_livro = {
-                    'titulo': titulo,
+                    'titulo': titulo,, file_bytes
                     'autor': autor or None,
                     'ano': ano,
                     'categoria': categoria or None,
@@ -270,7 +307,21 @@ elif menu == "📖 Biblioteca":
                     st.write(f"**Categoria:** {livro[4] or 'N/A'}")
                 
                 with col2:
-                    st.write(f"**Idioma:** {livro[5] or 'N/A'}")
+                    download, col_edit, col_delete = st.columns(3)
+                
+                with col_download:
+                    # Botão de download
+                    pdf_bytes = carregar_pdf(livro[8])  # livro[8] é o hash_arquivo
+                    if pdf_bytes:
+                        st.download_button(
+                            label="📥 Download",
+                            data=pdf_bytes,
+                            file_name=livro[9],  # livro[9] é o nome_arquivo
+                            mime="application/pdf",
+                            key=f"download_{livro[0]}"
+                        )
+                    else:
+                        st.button(f"📥 Indisponível", key=f"download_{livro[0]}", disabled=True] or 'N/A'}")
                     st.write(f"**Páginas:** {livro[6] or 'N/A'}")
                     st.write(f"**Tamanho:** {livro[7]} KB")
                     st.write(f"**Arquivo:** {livro[9]}")
