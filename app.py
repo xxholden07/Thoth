@@ -307,7 +307,19 @@ elif menu == "📖 Biblioteca":
                     st.write(f"**Categoria:** {livro[4] or 'N/A'}")
                 
                 with col2:
-                    download, col_edit, col_delete = st.columns(3)
+                    st.write(f"**Idioma:** {livro[5] or 'N/A'}")
+                    st.write(f"**Páginas:** {livro[6] or 'N/A'}")
+                    st.write(f"**Tamanho:** {livro[7]} KB")
+                    st.write(f"**Arquivo:** {livro[9]}")
+                
+                with col3:
+                    st.write(f"**Data:** {livro[10][:10]}")
+                
+                if livro[11]:
+                    st.write(f"**Notas:** {livro[11]}")
+                
+                # Botões de ação
+                col_download, col_edit, col_delete = st.columns(3)
                 
                 with col_download:
                     # Botão de download
@@ -321,19 +333,7 @@ elif menu == "📖 Biblioteca":
                             key=f"download_{livro[0]}"
                         )
                     else:
-                        st.button(f"📥 Indisponível", key=f"download_{livro[0]}", disabled=True] or 'N/A'}")
-                    st.write(f"**Páginas:** {livro[6] or 'N/A'}")
-                    st.write(f"**Tamanho:** {livro[7]} KB")
-                    st.write(f"**Arquivo:** {livro[9]}")
-                
-                with col3:
-                    st.write(f"**Data:** {livro[10][:10]}")
-                
-                if livro[11]:
-                    st.write(f"**Notas:** {livro[11]}")
-                
-                # Botões de ação
-                col_edit, col_delete = st.columns(2)
+                        st.button(f"📥 Indisponível", key=f"download_{livro[0]}", disabled=True)
                 
                 with col_edit:
                     if st.button(f"✏️ Editar", key=f"edit_{livro[0]}"):
