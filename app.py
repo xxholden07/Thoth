@@ -5,6 +5,7 @@ from datetime import datetime
 import PyPDF2
 import io
 import hashlib
+import requests
 
 # Configuração da página
 st.set_page_config(
@@ -61,6 +62,23 @@ def extrair_metadata_pdf(pdf_file):
 # Calcular hash do arquivo
 def calcular_hash(file_bytes):
     return hashlib.md5(file_bytes).hexdigest()
+
+# Buscar livros na Google Books API
+def buscar_google_books(query, max_results=10):
+    api_key = 'AIzaSyCAprehmvtZAY05Fo3yC0Qg7ibK_4aclyE'
+    url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}&key={api_key}'
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('items', [])
+        else:
+            st.error(f"Erro na API: {response.status_code}")
+            return []
+    except Exception as e:
+        st.error(f"Erro ao buscar livros: {str(e)}")
+        return []
 
 # Salvar arquivo PDF no disco
 def salvar_pdf(file_bytes, hash_arquivo):
@@ -219,12 +237,13 @@ init_database()
 
 # Interface principal
 st.title("📚 Biblioteca de Livros PDF")
+st.markdown("### Bem-vinda, Skárlath! 🦅")
 st.markdown("---")
 
 # Menu lateral
 menu = st.sidebar.selectbox(
     "Menu",
-    ["📥 Adicionar Livro", "📖 Biblioteca", "📊 Estatísticas"]
+    ["📥 Adicionar Livro", "📖 Biblioteca", "� Buscar no Google Books", "�📊 Estatísticas"]
 )
 
 if menu == "📥 Adicionar Livro":
@@ -298,22 +317,8 @@ elif menu == "📖 Biblioteca":
         
         for livro in livros:
             with st.expander(f"📖 {livro[1]} - {livro[2] or 'Autor desconhecido'}"):
-                col1, col2, col3 = st.columns([2, 2, 1])
-                
-                with col1:
-                    st.write(f"**Título:** {livro[1]}")
-                    st.write(f"**Autor:** {livro[2] or 'N/A'}")
-                    st.write(f"**Ano:** {livro[3] or 'N/A'}")
-                    st.write(f"**Categoria:** {livro[4] or 'N/A'}")
-                
-                with col2:
-                    st.write(f"**Idioma:** {livro[5] or 'N/A'}")
-                    st.write(f"**Páginas:** {livro[6] or 'N/A'}")
-                    st.write(f"**Tamanho:** {livro[7]} KB")
-                    st.write(f"**Arquivo:** {livro[9]}")
-                
-                with col3:
-                    st.write(f"**Data:** {livro[10][:10]}")
+                st.write(f"**Título:** {livro[1]}")
+                st.write(f"**Autor:** {livro[2] or 'Autor desconhecido'}")
                 
                 if livro[11]:
                     st.write(f"**Notas:** {livro[11]}")
@@ -390,7 +395,71 @@ elif menu == "📖 Biblioteca":
     else:
         st.info("📭 Nenhum livro encontrado. Adicione seus primeiros livros!")
 
-elif menu == "📊 Estatísticas":
+elif menu == "� Buscar no Google Books":
+    st.header("Buscar Livros no Google Books")
+    
+    busca = st.text_input("🔍 Digite o título, autor ou ISBN do livro", placeholder="Ex: Harry Potter, J.K. Rowling, ISBN...")
+    
+    if st.button("🔎 Buscar", type="primary"):
+        if busca:
+            with st.spinner("Buscando livros..."):
+                resultados = buscar_google_books(busca)
+                
+                if resultados:
+                    st.success(f"✅ {len(resultados)} livro(s) encontrado(s)")
+                    
+                    for item in resultados:
+                        volume_info = item.get('volumeInfo', {})
+                        
+                        titulo = volume_info.get('title', 'Sem título')
+                        autores = volume_info.get('authors', [])
+                        autor = ', '.join(autores) if autores else 'Autor desconhecido'
+                        ano = volume_info.get('publishedDate', '')[:4] if volume_info.get('publishedDate') else None
+                        categoria = ', '.join(volume_info.get('categories', [])) if volume_info.get('categories') else None
+                        idioma = volume_info.get('language', 'Desconhecido')
+                        num_paginas = volume_info.get('pageCount', 0)
+                        descricao = volume_info.get('description', '')
+                        thumbnail = volume_info.get('imageLinks', {}).get('thumbnail', '')
+                        
+                        with st.expander(f"📖 {titulo} - {autor}"):
+                            col1, col2 = st.columns([1, 3])
+                            
+                            with col1:
+                                if thumbnail:
+                                    st.image(thumbnail, width=100)
+                            
+                            with col2:
+                                st.write(f"**Título:** {titulo}")
+                                st.write(f"**Autor(es):** {autor}")
+                                if ano:
+                                    st.write(f"**Ano:** {ano}")
+                                if categoria:
+                                    st.write(f"**Categoria:** {categoria}")
+                                st.write(f"**Idioma:** {idioma}")
+                                st.write(f"**Páginas:** {num_paginas if num_paginas else 'N/A'}")
+                            
+                            if descricao:
+                                st.write("**Descrição:**")
+                                st.write(descricao[:300] + "..." if len(descricao) > 300 else descricao)
+                            
+                            st.markdown("---")
+                            st.info("💡 Para adicionar este livro, faça o upload do PDF na seção 'Adicionar Livro' e use estas informações.")
+                            
+                            # Botão para copiar informações
+                            if st.button("📋 Copiar Informações", key=f"copy_{item.get('id')}"):
+                                info_texto = f"Título: {titulo}\nAutor: {autor}"
+                                if ano:
+                                    info_texto += f"\nAno: {ano}"
+                                if categoria:
+                                    info_texto += f"\nCategoria: {categoria}"
+                                st.code(info_texto)
+                                st.success("✅ Informações prontas para copiar!")
+                else:
+                    st.warning("⚠️ Nenhum livro encontrado. Tente outro termo de busca.")
+        else:
+            st.error("Por favor, digite algo para buscar.")
+
+elif menu == "�📊 Estatísticas":
     st.header("Estatísticas da Biblioteca")
     
     stats = obter_estatisticas()
