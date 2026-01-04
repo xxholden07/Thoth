@@ -6,6 +6,7 @@ import PyPDF2
 import io
 import hashlib
 import requests
+import json
 
 # Configuração da página
 st.set_page_config(
@@ -64,9 +65,86 @@ def calcular_hash(file_bytes):
     return hashlib.md5(file_bytes).hexdigest()
 
 # Buscar livros na Google Books API
+def obter_token_service_account():
+    """Obtém token de acesso OAuth2 usando credenciais da conta de serviço"""
+    service_account_info = st.session_state.get('service_account_json', None)
+    
+    if not service_account_info:
+        return None
+    
+    try:
+        import time
+        import base64
+        from urllib.parse import urlencode
+        
+        # Criar JWT
+        header = {
+            "alg": "RS256",
+            "typ": "JWT"
+        }
+        
+        now = int(time.time())
+        claim_set = {
+            "iss": service_account_info["client_email"],
+            "scope": "https://www.googleapis.com/auth/books",
+            "aud": "https://oauth2.googleapis.com/token",
+            "exp": now + 3600,
+            "iat": now
+        }
+        
+        # Usar biblioteca PyJWT se disponível, senão retornar None
+        try:
+            import jwt
+            private_key = service_account_info["private_key"]
+            token = jwt.encode(claim_set, private_key, algorithm="RS256", headers=header)
+            
+            # Trocar JWT por token de acesso
+            token_url = "https://oauth2.googleapis.com/token"
+            data = {
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": token
+            }
+            
+            response = requests.post(token_url, data=data)
+            if response.status_code == 200:
+                return response.json().get("access_token")
+        except ImportError:
+            st.warning("⚠️ Biblioteca PyJWT não instalada. Use chave API ao invés de conta de serviço.")
+            return None
+    except Exception as e:
+        st.error(f"Erro ao obter token: {str(e)}")
+        return None
+
 def buscar_google_books(query, max_results=10):
-    # Tentar primeiro sem chave API (quota gratuita)
-    url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}'
+    # Tentar usar token de conta de serviço primeiro
+    access_token = obter_token_service_account()
+    
+    if access_token:
+        # Usar token OAuth2
+        url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}'
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('items', [])
+            elif response.status_code == 403:
+                st.error("⚠️ Erro de autorização. Verifique as permissões da conta de serviço.")
+                return []
+            else:
+                st.error(f"Erro na busca: {response.status_code}")
+                return []
+        except Exception as e:
+            st.error(f"Erro ao buscar livros: {str(e)}")
+            return []
+    
+    # Caso contrário, tentar usar chave API
+    api_key = st.session_state.get('google_api_key', '')
+    
+    if api_key:
+        url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}&key={api_key}'
+    else:
+        url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}'
     
     try:
         response = requests.get(url, timeout=10)
@@ -74,7 +152,7 @@ def buscar_google_books(query, max_results=10):
             data = response.json()
             return data.get('items', [])
         elif response.status_code == 403:
-            st.error("⚠️ Limite de requisições atingido. Aguarde alguns minutos e tente novamente.")
+            st.error("⚠️ Limite de requisições atingido ou chave API inválida. Configure sua chave API ou conta de serviço nas configurações.")
             return []
         else:
             st.error(f"Erro na busca: {response.status_code}")
@@ -249,7 +327,7 @@ st.markdown("---")
 # Menu lateral
 menu = st.sidebar.selectbox(
     "Menu",
-    ["📥 Adicionar Livro", "📖 Biblioteca", "� Buscar no Google Books", "�📊 Estatísticas"]
+    ["📥 Adicionar Livro", "📖 Biblioteca", "🔍 Buscar no Google Books", "📊 Estatísticas", "⚙️ Configurações"]
 )
 
 if menu == "📥 Adicionar Livro":
@@ -523,6 +601,122 @@ elif menu == "�📊 Estatísticas":
             st.line_chart(df_anos.set_index('Ano'))
         
         conn.close()
+
+elif menu == "⚙️ Configurações":
+    st.header("Configurações")
+    
+    st.subheader("🔑 Autenticação Google Books API")
+    st.markdown("""
+    Escolha um dos métodos de autenticação:
+    """)
+    
+    # Tabs para diferentes métodos de autenticação
+    tab1, tab2 = st.tabs(["🔑 Chave API", "👤 Conta de Serviço"])
+    
+    with tab1:
+        st.markdown("""
+        **Chave API (mais simples)**
+        
+        1. Acesse [Google Cloud Console](https://console.cloud.google.com/)
+        2. Selecione seu projeto (ex: scribe-457513)
+        3. Ative a **Books API**
+        4. Vá em "APIs & Services" > "Credentials"
+        5. Crie uma "API Key"
+        6. Cole a chave abaixo
+        """)
+        
+        chave_atual = st.session_state.get('google_api_key', '')
+        
+        api_key_input = st.text_input(
+            "Chave API do Google Books",
+            value=chave_atual,
+            type="password",
+            help="Sua chave API do Google Cloud com Books API habilitada"
+        )
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("💾 Salvar Chave API", type="primary"):
+                if api_key_input:
+                    st.session_state['google_api_key'] = api_key_input
+                    st.session_state['service_account_json'] = None  # Limpar conta de serviço
+                    st.success("✅ Chave API salva com sucesso!")
+                    st.info("💡 A chave será válida durante esta sessão.")
+                else:
+                    st.error("❌ Por favor, insira uma chave válida.")
+        
+        with col2:
+            if st.button("🗑️ Remover Chave API"):
+                st.session_state['google_api_key'] = ''
+                st.success("✅ Chave removida.")
+    
+    with tab2:
+        st.markdown("""
+        **Conta de Serviço (recomendado para produção)**
+        
+        1. Acesse [Google Cloud Console](https://console.cloud.google.com/)
+        2. Selecione seu projeto (ex: scribe-457513)
+        3. Vá em "IAM & Admin" > "Service Accounts"
+        4. Selecione ou crie uma conta de serviço
+        5. Crie uma chave JSON
+        6. Faça upload do arquivo JSON abaixo
+        
+        **Nota:** Certifique-se de que a Books API está habilitada no projeto.
+        """)
+        
+        uploaded_json = st.file_uploader(
+            "Upload do arquivo JSON de credenciais",
+            type=['json'],
+            help="Arquivo JSON da conta de serviço do Google Cloud"
+        )
+        
+        if uploaded_json:
+            try:
+                service_account_data = json.load(uploaded_json)
+                
+                # Validar estrutura básica
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                if all(field in service_account_data for field in required_fields):
+                    if service_account_data['type'] == 'service_account':
+                        st.success(f"✅ Arquivo válido!")
+                        st.info(f"📧 Conta: {service_account_data['client_email']}")
+                        st.info(f"📋 Projeto: {service_account_data['project_id']}")
+                        
+                        if st.button("💾 Salvar Conta de Serviço", type="primary"):
+                            st.session_state['service_account_json'] = service_account_data
+                            st.session_state['google_api_key'] = ''  # Limpar chave API
+                            st.success("✅ Conta de serviço configurada com sucesso!")
+                            st.info("💡 As credenciais serão válidas durante esta sessão.")
+                            st.warning("⚠️ Nota: Requer biblioteca PyJWT instalada. Se não estiver disponível, use Chave API.")
+                    else:
+                        st.error("❌ Arquivo inválido. Não é uma conta de serviço.")
+                else:
+                    st.error("❌ Arquivo JSON inválido. Campos obrigatórios ausentes.")
+            except json.JSONDecodeError:
+                st.error("❌ Erro ao ler arquivo JSON. Verifique se o arquivo está correto.")
+        
+        if st.button("🗑️ Remover Conta de Serviço"):
+            st.session_state['service_account_json'] = None
+            st.success("✅ Conta de serviço removida.")
+    
+    st.markdown("---")
+    st.subheader("📊 Status de Autenticação")
+    
+    service_account = st.session_state.get('service_account_json', None)
+    api_key = st.session_state.get('google_api_key', '')
+    
+    if service_account:
+        st.success(f"✅ Conta de Serviço configurada: {service_account.get('client_email', 'N/A')}")
+    elif api_key:
+        st.success("✅ Chave API configurada")
+    else:
+        st.warning("⚠️ Usando quota gratuita (até 1000 requisições/dia)")
+    
+    st.markdown("---")
+    st.subheader("📊 Status da Biblioteca")
+    stats = obter_estatisticas()
+    st.write(f"📚 Total de livros cadastrados: **{stats['total_livros']}**")
 
 # Rodapé
 st.sidebar.markdown("---")
