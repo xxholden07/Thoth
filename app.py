@@ -261,7 +261,7 @@ if menu == "📥 Adicionar Livro":
         if st.button("💾 Salvar na Biblioteca", type="primary"):
             if titulo:
                 dados_livro = {
-                    'titulo': titulo,, file_bytes
+                    'titulo': titulo,
                     'autor': autor or None,
                     'ano': ano,
                     'categoria': categoria or None,
@@ -273,7 +273,7 @@ if menu == "📥 Adicionar Livro":
                     'notas': notas or None
                 }
                 
-                if adicionar_livro(dados_livro):
+                if adicionar_livro(dados_livro, file_bytes):
                     st.success("✅ Livro adicionado com sucesso!")
                     st.balloons()
                 else:
