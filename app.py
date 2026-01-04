@@ -65,17 +65,23 @@ def calcular_hash(file_bytes):
 
 # Buscar livros na Google Books API
 def buscar_google_books(query, max_results=10):
-    api_key = 'AIzaSyCAprehmvtZAY05Fo3yC0Qg7ibK_4aclyE'
-    url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}&key={api_key}'
+    # Tentar primeiro sem chave API (quota gratuita)
+    url = f'https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={max_results}'
     
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
             return data.get('items', [])
-        else:
-            st.error(f"Erro na API: {response.status_code}")
+        elif response.status_code == 403:
+            st.error("⚠️ Limite de requisições atingido. Aguarde alguns minutos e tente novamente.")
             return []
+        else:
+            st.error(f"Erro na busca: {response.status_code}")
+            return []
+    except requests.exceptions.Timeout:
+        st.error("⏱️ Tempo de espera esgotado. Tente novamente.")
+        return []
     except Exception as e:
         st.error(f"Erro ao buscar livros: {str(e)}")
         return []
